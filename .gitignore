@@ -1,4 +1,10 @@
-*.apk
 *.zip
 .gradle/
 build/
+build_apk/
+native_hook/obj/
+javac.*.args
+*.log
+
+# Allow dist APK
+!dist/*.apk
