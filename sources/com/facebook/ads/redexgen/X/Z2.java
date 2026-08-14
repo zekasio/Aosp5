@@ -1,0 +1,25 @@
+package com.facebook.ads.redexgen.X;
+
+import android.os.Build;
+
+/* JADX INFO: loaded from: assets/audience_network.dex */
+public class Z2 implements InterfaceC02856v {
+    public final /* synthetic */ C0970Yv A00;
+
+    public Z2(C0970Yv c0970Yv) {
+        this.A00 = c0970Yv;
+    }
+
+    @Override // com.facebook.ads.redexgen.X.InterfaceC02856v
+    public final C7A A5J() {
+        if (this.A00.A01 != null) {
+            if (Build.VERSION.SDK_INT >= 28) {
+                C0970Yv c0970Yv = this.A00;
+                return c0970Yv.A06(c0970Yv.A01.getLongVersionCode());
+            }
+            C0970Yv c0970Yv2 = this.A00;
+            return c0970Yv2.A04(c0970Yv2.A01.versionCode);
+        }
+        return this.A00.A07(AnonymousClass76.A07);
+    }
+}

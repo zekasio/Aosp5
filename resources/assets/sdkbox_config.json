@@ -1,0 +1,386 @@
+{
+    "ios" : {
+        "sdkboxplay" : {
+            "leaderboards" : [
+                {
+                    "id" : "BestScoreStage",
+                    "name" : "BestScoreStage"
+                }
+            ],
+            "achievements" : [
+                {
+                    "id" : "FirstPlay",
+                    "name" : "FirstPlay",
+                    "incremental" : false
+                },
+                {
+                    "id" : "FirstPlayJumpJump",
+                    "name" : "FirstPlayJumpJump",
+                    "incremental" : false
+                },
+                {
+                    "id" : "FirstPlayDefense",
+                    "name" : "FirstPlayDefense",
+                    "incremental" : false
+                },
+                {
+                    "id" : "FirstPlayWeapons",
+                    "name" : "FirstPlayWeapons",
+                    "incremental" : false
+                },
+                {
+                    "id" : "FirstPlayFriends",
+                    "name" : "FirstPlayFriends",
+                    "incremental" : false
+                },
+                {
+                    "id" : "FirstPlayZombie",
+                    "name" : "FirstPlayZombie",
+                    "incremental" : false
+                },
+                {
+                    "id" : "FirstLevelUp",
+                    "name" : "FirstLevelUp",
+                    "incremental" : false
+                },
+                {
+                    "id" : "FirstPayment",
+                    "name" : "FirstPayment",
+                    "incremental" : false
+                },
+                {
+                    "id" : "Level5Success",
+                    "name" : "Level5Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "Level10Success",
+                    "name" : "Level10Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "Level15Success",
+                    "name" : "Level15Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "Level20Success",
+                    "name" : "Level20Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "Level25Success",
+                    "name" : "Level25Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "Level30Success",
+                    "name" : "Level30Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "Level35Success",
+                    "name" : "Level35Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "Level40Success",
+                    "name" : "Level40Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "Level45Success",
+                    "name" : "Level45Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "Level50Success",
+                    "name" : "Level50Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "Level55Success",
+                    "name" : "Level55Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "Level60Success",
+                    "name" : "Level60Success",
+                    "incremental" : false
+                }
+            ],
+            "debug" : true,
+            "show_achievement_notification": true,
+            "connect_on_start" : false
+        },
+        "iap" : {
+            "enabled" : true,
+            "production" : "true",
+            "items" : {
+                "hgo799" : {
+                    "id" : "AOS5.Hgo799g",
+                    "type" : "consumable"
+                },
+                "hgt799" : {
+                    "id" : "AOS5.Hgt799g",
+                    "type" : "consumable"
+                },
+                "g2999" : {
+                    "id" : "AOS5.G2999g",
+                    "type" : "consumable"
+                },
+                "hgs999" : {
+                    "id" : "AOS5.Hgs999g",
+                    "type" : "consumable"
+                },
+                "ho399" : {
+                    "id" : "AOS5.Ho399g",
+                    "type" : "consumable"
+                },
+                "gj9999" : {
+                    "id" : "AOS5.GJ9999g",
+                    "type" : "consumable"
+                },
+                "ht399" : {
+                    "id" : "AOS5.Ht399g",
+                    "type" : "consumable"
+                },
+                "g499" : {
+                    "id" : "AOS5.G499g",
+                    "type" : "consumable"
+                },
+                "hg699" : {
+                    "id" : "AOS5.Hg699g",
+                    "type" : "consumable"
+                },
+                "j499" : {
+                    "id" : "AOS5.J499g",
+                    "type" : "consumable"
+                },
+                "j99" : {
+                    "id" : "AOS5.J099g",
+                    "type" : "consumable"
+                },
+                "g99" : {
+                    "id" : "AOS5.G0099g",
+                    "type" : "consumable"
+                },
+                "hg599" : {
+                    "id" : "AOS5.Hg599g",
+                    "type" : "consumable"
+                },
+                "sdisg199" : {
+                    "id" : "AOS5.SDISG199",
+                    "type" : "consumable"
+                },
+                "sdisg499" : {
+                    "id" : "AOS5.SDISG499",
+                    "type" : "consumable"
+                },
+                "sdisg899" : {
+                    "id" : "AOS5.SDISG899",
+                    "type" : "consumable"
+                },
+                "sdisj199" : {
+                    "id" : "AOS5.SDISJ199",
+                    "type" : "consumable"
+                },
+                "sdisj499" : {
+                    "id" : "AOS5.SDISJ499",
+                    "type" : "consumable"
+                },
+                "sdisj899" : {
+                    "id" : "AOS5.SDISJ899",
+                    "type" : "consumable"
+                },
+                "sdisgj399" : {
+                    "id" : "AOS5.SDISGJ399",
+                    "type" : "consumable"
+                },
+                "sdisgj499" : {
+                    "id" : "AOS5.SDISGJ499",
+                    "type" : "consumable"
+                },
+                "sdisgj2399" : {
+                    "id" : "AOS5.SDISGJ2399",
+                    "type" : "consumable"
+                }
+            }
+        }
+    },
+    "android" : {
+        "sdkboxplay" : {
+            "leaderboards" : [
+                {
+                    "id" : "CgkI0eeN_4sLEAIQAg",
+                    "name" : "BestScoreStage"
+                }
+            ],
+            "achievements" : [
+                {
+                    "id" : "CgkI0eeN_4sLEAIQAQ",
+                    "name" : "FirstPlay",
+                    "incremental" : false
+                },
+                {
+                    "id" : "CgkI0eeN_4sLEAIQAw",
+                    "name" : "FirstPlayJumpJump",
+                    "incremental" : false
+                },
+                {
+                    "id" : "CgkI0eeN_4sLEAIQBA",
+                    "name" : "FirstPlayDefense",
+                    "incremental" : false
+                },
+                {
+                    "id" : "CgkI0eeN_4sLEAIQBQ",
+                    "name" : "FirstPlayWeapons",
+                    "incremental" : false
+                },
+                {
+                    "id" : "CgkI0eeN_4sLEAIQBg",
+                    "name" : "FirstPlayFriends",
+                    "incremental" : false
+                },
+                {
+                    "id" : "CgkI0eeN_4sLEAIQBw",
+                    "name" : "FirstPlayZombie",
+                    "incremental" : false
+                },
+                {
+                    "id" : "CgkI0eeN_4sLEAIQFQ",
+                    "name" : "FirstLevelUp",
+                    "incremental" : false
+                },
+                {
+                    "id" : "CgkI0eeN_4sLEAIQFA",
+                    "name" : "FirstPayment",
+                    "incremental" : false
+                },
+                {
+                    "id" : "CgkI0eeN_4sLEAIQCA",
+                    "name" : "Level5Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "CgkI0eeN_4sLEAIQCQ",
+                    "name" : "Level10Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "CgkI0eeN_4sLEAIQCg",
+                    "name" : "Level15Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "CgkI0eeN_4sLEAIQCw",
+                    "name" : "Level20Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "CgkI0eeN_4sLEAIQDA",
+                    "name" : "Level25Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "CgkI0eeN_4sLEAIQDQ",
+                    "name" : "Level30Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "CgkI0eeN_4sLEAIQDg",
+                    "name" : "Level35Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "CgkI0eeN_4sLEAIQDw",
+                    "name" : "Level40Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "CgkI0eeN_4sLEAIQEA",
+                    "name" : "Level45Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "CgkI0eeN_4sLEAIQEQ",
+                    "name" : "Level50Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "CgkI0eeN_4sLEAIQEg",
+                    "name" : "Level55Success",
+                    "incremental" : false
+                },
+                {
+                    "id" : "CgkI0eeN_4sLEAIQEw",
+                    "name" : "Level60Success",
+                    "incremental" : false
+                }
+            ],
+            "debug" : false,
+            "show_achievement_notification": true,
+            "connect_on_start" : false
+        },
+        "iap" : {
+            "items" : {
+                "hgo799" : {
+                    "id" : "aos5.hgo799",
+                    "type" : "consumable"
+                },
+                "hgt799" : {
+                    "id" : "aos5.hgt799",
+                    "type" : "consumable"
+                },
+                "g2999" : {
+                    "id" : "aos5.g2999",
+                    "type" : "consumable"
+                },
+                "ho399" : {
+                    "id" : "aos5.ho399",
+                    "type" : "consumable"
+                },
+                "gj9999" : {
+                    "id" : "aos5.gj9999",
+                    "type" : "consumable"
+                },
+                "ht399" : {
+                    "id" : "aos5.ht399",
+                    "type" : "consumable"
+                },
+                "g499" : {
+                    "id" : "aos5.g499",
+                    "type" : "consumable"
+                },
+                "hg699" : {
+                    "id" : "aos5.hg699",
+                    "type" : "consumable"
+                },
+                "j99" : {
+                    "id" : "aos5.j99",
+                    "type" : "consumable"
+                },
+                "j499" : {
+                    "id" : "aos5.j499",
+                    "type" : "consumable"
+                },
+                "hgs999" : {
+                    "id" : "aos5.hgs999",
+                    "type" : "consumable"
+                },
+                "g99" : {
+                    "id" : "aos5.g99",
+                    "type" : "consumable"
+                },
+                "hg599" : {
+                    "id" : "aos5.hg599",
+                    "type" : "consumable"
+                }
+            },
+            "key" : "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAov1o+s5udIPrWzb43ZqO1NFLbcjD+4A1fWEW0lWH65G1okewY\/dTW95i8JpV3gcxA9nZ0Jqd7wzKrR9jCmO4h4PppM03VGif6IiR9gUoJm74rwCsDw3gQMacART3VH3TqXz5WYdcZJ\/tVm6NhjVZ+Z2MO98HbAjsKdRiamanCgZyw7DFj+fpI39999kYHUMa1U1w0wg3zKpFAg6wdjbUpWM4ibn8xXzPAwwvyJS2CnDyMqeZPEWbaRpITYPJczX\/XwZLbcplfZo4BC6z0jz0Wd5GrVZxznyyKVLDx7yqucRzg0aVaHWfN0uE6EJ\/qr1BHiY1Q\/PUvjIi4bnS6B\/8YwIDAQAB"
+        }
+    },
+    "playphone" : [
+        
+    ]
+}
