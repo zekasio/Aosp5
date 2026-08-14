@@ -7,6 +7,7 @@
 #include <atomic>
 #include <mutex>
 #include <queue>
+#include <vector>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -20,6 +21,13 @@ struct RemotePeerState {
     std::atomic<int16_t> hp{100};
     std::atomic<uint16_t> flags{0};
     std::atomic<uint32_t> last_update_ms{0};
+};
+
+struct RoomInfo {
+    uint32_t room_id{0};
+    char host_name[16]{0};
+    uint8_t players_count{0};
+    uint8_t stage{0};
 };
 
 class NetClient {
@@ -42,6 +50,9 @@ public:
     void send_armory_ready(bool ready);
     void send_chat_message(const std::string& sender_name, const std::string& text);
     bool poll_chat_message(ChatMessagePacket& out_msg);
+
+    void request_room_list();
+    std::string get_room_list_json();
 
     uint8_t get_my_peer_id() const { return m_my_peer_id.load(); }
     bool is_connected() const { return m_connected.load(); }
@@ -86,6 +97,10 @@ private:
     // Chat message queue
     std::mutex m_chat_mutex;
     std::queue<ChatMessagePacket> m_chat_queue;
+
+    // Room list
+    std::mutex m_rooms_mutex;
+    std::vector<RoomInfo> m_active_rooms;
 
     std::thread m_net_thread;
     RemotePeerState m_remote_peers[4];

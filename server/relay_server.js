@@ -1,6 +1,6 @@
 /**
  * Anger of Stick 5 - Dedicated 4-Player Matchmaking & UDP Relay Server
- * Handles rooms, player slots 0..3, lobby ready states, in-game chat, and 60Hz telemetry fanout.
+ * Handles rooms, player slots 0..3, active lobby discovery, chat, and 60Hz telemetry fanout.
  */
 
 const dgram = require('dgram');
@@ -45,6 +45,10 @@ class Room {
         this.stage = STAGE.PRE_GAME_LOBBY;
         this.selectedLevel = 1;
         this.lastActivity = Date.now();
+    }
+
+    getHostName() {
+        return (this.slots[0] && this.slots[0].name) ? this.slots[0].name : 'Host';
     }
 
     addPeer(address, port, preferredSlot, name = 'Player') {
@@ -155,6 +159,43 @@ server.on('message', (msg, rinfo) => {
     if (magic !== AOS_MAGIC) return;
 
     switch (type) {
+        case PKT.ROOM_LIST_REQUEST: {
+            // Find active rooms
+            const activeRooms = [];
+            for (const r of rooms.values()) {
+                if (r.getPlayersCount() > 0) {
+                    activeRooms.push({
+                        id: r.id,
+                        host: r.getHostName(),
+                        count: r.getPlayersCount(),
+                        stage: r.stage
+                    });
+                }
+            }
+
+            // Binary list response: Header (3 bytes) + Count (1 byte) + N * 22 bytes
+            // Each room: room_id (4), host_name (16), count (1), stage (1)
+            const count = Math.min(activeRooms.length, 10);
+            const resp = Buffer.alloc(4 + (count * 22));
+            resp.writeUInt8(AOS_MAGIC, 0);
+            resp.writeUInt8(AOS_VERSION, 1);
+            resp.writeUInt8(PKT.ROOM_LIST_RESPONSE, 2);
+            resp.writeUInt8(count, 3);
+
+            let offset = 4;
+            for (let i = 0; i < count; i++) {
+                const room = activeRooms[i];
+                resp.writeUInt32LE(room.id, offset);
+                resp.write(room.host.substring(0, 15), offset + 4, 16, 'utf8');
+                resp.writeUInt8(room.count, offset + 20);
+                resp.writeUInt8(room.stage, offset + 21);
+                offset += 22;
+            }
+
+            server.send(resp, 0, resp.length, rinfo.port, rinfo.address);
+            break;
+        }
+
         case PKT.JOIN_REQUEST: {
             if (msg.length < 8) return;
             const roomId = msg.readUInt32LE(3);
@@ -255,11 +296,10 @@ server.on('message', (msg, rinfo) => {
         }
 
         case PKT.CHAT_MESSAGE: {
-            // Forward chat message to everyone in the room (including sender or echo)
             const senderSlot = msg.readUInt8(3);
             for (const room of rooms.values()) {
                 if (room.slots[senderSlot] && room.slots[senderSlot].address === rinfo.address) {
-                    room.broadcast(server, msg); // Broadcast to ALL in room
+                    room.broadcast(server, msg);
                     break;
                 }
             }

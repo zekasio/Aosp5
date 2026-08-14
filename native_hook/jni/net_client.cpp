@@ -2,6 +2,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <chrono>
+#include <sstream>
 #include <android/log.h>
 
 #define NET_LOG_TAG "AOS_NET"
@@ -183,6 +184,29 @@ bool NetClient::poll_chat_message(ChatMessagePacket& out_msg) {
     return true;
 }
 
+void NetClient::request_room_list() {
+    if (m_sockfd < 0) return;
+
+    PacketHeader req{AOS_MAGIC_BYTE, AOS_PROTO_VERSION, PKT_ROOM_LIST_REQUEST};
+    sendto(m_sockfd, &req, sizeof(req), 0, (struct sockaddr*)&m_server_addr, sizeof(m_server_addr));
+}
+
+std::string NetClient::get_room_list_json() {
+    std::lock_guard<std::mutex> lock(m_rooms_mutex);
+    std::ostringstream ss;
+    ss << "[";
+    for (size_t i = 0; i < m_active_rooms.size(); ++i) {
+        const auto& r = m_active_rooms[i];
+        if (i > 0) ss << ",";
+        ss << "{\"id\":" << r.room_id
+           << ",\"host\":\"" << r.host_name << "\""
+           << ",\"players\":" << (int)r.players_count
+           << ",\"stage\":" << (int)r.stage << "}";
+    }
+    ss << "]";
+    return ss.str();
+}
+
 void NetClient::network_thread_func() {
     LOGI("AOS Network thread started.");
 
@@ -250,6 +274,26 @@ void NetClient::network_thread_func() {
                     break;
                 }
 
+                case PKT_ROOM_LIST_RESPONSE: {
+                    if (bytes >= 4) {
+                        uint8_t count = (uint8_t)recv_buf[3];
+                        std::vector<RoomInfo> rooms_temp;
+                        size_t offset = 4;
+                        for (uint8_t i = 0; i < count && offset + 22 <= (size_t)bytes; ++i) {
+                            RoomInfo info{};
+                            info.room_id = *(uint32_t*)(recv_buf + offset);
+                            strncpy(info.host_name, recv_buf + offset + 4, 15);
+                            info.players_count = (uint8_t)recv_buf[offset + 20];
+                            info.stage = (uint8_t)recv_buf[offset + 21];
+                            rooms_temp.push_back(info);
+                            offset += 22;
+                        }
+                        std::lock_guard<std::mutex> lock(m_rooms_mutex);
+                        m_active_rooms = rooms_temp;
+                    }
+                    break;
+                }
+
                 case PKT_LOBBY_STATE: {
                     if (bytes >= (ssize_t)sizeof(LobbyStatePacket)) {
                         auto* lobby = (LobbyStatePacket*)recv_buf;
@@ -258,9 +302,6 @@ void NetClient::network_thread_func() {
                         m_ready_mask.store(lobby->ready_mask);
                         m_stage.store(lobby->stage);
                         m_selected_level.store(lobby->selected_level);
-
-                        LOGI("Lobby Update: %u/4 Players, ReadyMask: 0x%02X, Stage: %u",
-                             lobby->total_players, lobby->ready_mask, lobby->stage);
                     }
                     break;
                 }
