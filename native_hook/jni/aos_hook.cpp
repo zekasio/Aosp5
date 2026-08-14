@@ -196,7 +196,7 @@ extern "C" {
 JNIEXPORT void JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeSetMultiplayerConfig(
     JNIEnv* env, jclass clazz, jstring jhost, jint port, jint roomId, jint slot) {
     const char* host_str = env->GetStringUTFChars(jhost, nullptr);
-    std::string host = host_str ? host_str : "127.0.0.1";
+    std::string host = host_str ? host_str : "147.185.221.225";
     if (host_str) env->ReleaseStringUTFChars(jhost, host_str);
 
     LOGI("JNI: Configured Multiplayer -> Host: %s:%d, Room: %d, Slot: %d", host.c_str(), port, roomId, slot);
