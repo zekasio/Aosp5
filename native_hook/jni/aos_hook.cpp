@@ -18,11 +18,13 @@ typedef void (*drawScene_t)(void* pGame, float dt);
 typedef void (*update_t)(void* pGame, float dt);
 typedef void (*COMAI_t)(void* pGame, int entity_idx);
 typedef void (*PCDamage_t)(void* pGame, int type, int entity_idx, int amount);
+typedef void (*ComCreate_t)(void* pGame, int entity_idx);
 
 static drawScene_t orig_drawScene = nullptr;
 static update_t orig_update = nullptr;
 static COMAI_t orig_COMAI = nullptr;
 static PCDamage_t orig_PCDamage = nullptr;
+static ComCreate_t orig_ComCreate = nullptr;
 
 static bool g_hooks_installed = false;
 
@@ -82,7 +84,6 @@ static void hook_drawScene(void* pGame, float dt) {
         }
     }
 
-    // Call original drawScene
     if (orig_drawScene) {
         orig_drawScene(pGame, dt);
     }
@@ -93,13 +94,26 @@ static void hook_COMAI(void* pGame, int entity_idx) {
     if (NetClient::instance().is_connected() && entity_idx >= 1 && entity_idx <= 3) {
         auto& remote = NetClient::instance().get_remote_peer(entity_idx);
         if (remote.active.load()) {
-            // Suppress bot AI execution
+            // Suppress bot AI execution for human player proxies
             return;
         }
     }
 
     if (orig_COMAI) {
         orig_COMAI(pGame, entity_idx);
+    }
+}
+
+// Hook: bzStateGame::ComCreate(int entity_idx) - Mercenary Slot Creation
+static void hook_ComCreate(void* pGame, int entity_idx) {
+    if (NetClient::instance().is_connected()) {
+        // Mercenary slots are reserved for real multiplayer peers
+        LOGI("Mercenary slot %d reserved for multiplayer peer.", entity_idx);
+        return;
+    }
+
+    if (orig_ComCreate) {
+        orig_ComCreate(pGame, entity_idx);
     }
 }
 
@@ -151,17 +165,20 @@ static void install_hooks() {
     void* sym_drawScene = nullptr;
     void* sym_COMAI = nullptr;
     void* sym_PCDamage = nullptr;
+    void* sym_ComCreate = nullptr;
 
     if (base) {
         LOGI("Found libMyGame.so base address at %p", (void*)base);
         sym_drawScene = (void*)(base + 0x2b5020);
         sym_COMAI = (void*)(base + 0x3219dc);
         sym_PCDamage = (void*)(base + 0x3398c8);
+        sym_ComCreate = (void*)(base + 0x332560);
     } else {
         LOGI("Using dlsym RTLD_DEFAULT fallback...");
         sym_drawScene = dlsym(RTLD_DEFAULT, "_ZN11bzStateGame9drawSceneEf");
         sym_COMAI = dlsym(RTLD_DEFAULT, "_ZN11bzStateGame5COMAIEi");
         sym_PCDamage = dlsym(RTLD_DEFAULT, "_ZN11bzStateGame8PCDamageEiii");
+        sym_ComCreate = dlsym(RTLD_DEFAULT, "_ZN11bzStateGame9ComCreateEi");
     }
 
     if (sym_drawScene) {
@@ -172,6 +189,9 @@ static void install_hooks() {
     }
     if (sym_PCDamage) {
         HookEngine::hook_arm64(sym_PCDamage, (void*)hook_PCDamage, (void**)&orig_PCDamage);
+    }
+    if (sym_ComCreate) {
+        HookEngine::hook_arm64(sym_ComCreate, (void*)hook_ComCreate, (void**)&orig_ComCreate);
     }
 
     g_hooks_installed = true;
@@ -188,20 +208,24 @@ static void aos_mod_entry() {
 }
 
 // -------------------------------------------------------------
-// JNI Exports for In-Game Lobby & Stage Flow
+// JNI Exports for In-Game Lobby, Stage Flow & Chat
 // -------------------------------------------------------------
 
 extern "C" {
 
 JNIEXPORT void JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeSetMultiplayerConfig(
-    JNIEnv* env, jclass clazz, jstring jhost, jint port, jint roomId, jint slot) {
+    JNIEnv* env, jclass clazz, jstring jhost, jint port, jint roomId, jint slot, jstring jname) {
     const char* host_str = env->GetStringUTFChars(jhost, nullptr);
     std::string host = host_str ? host_str : "147.185.221.225";
     if (host_str) env->ReleaseStringUTFChars(jhost, host_str);
 
-    LOGI("JNI: Configured Multiplayer -> Host: %s:%d, Room: %d, Slot: %d", host.c_str(), port, roomId, slot);
+    const char* name_str = env->GetStringUTFChars(jname, nullptr);
+    std::string name = name_str ? name_str : "Player";
+    if (name_str) env->ReleaseStringUTFChars(jname, name_str);
+
+    LOGI("JNI: Configured Multiplayer -> %s:%d, Room: %d, Slot: %d, Name: %s", host.c_str(), port, roomId, slot, name.c_str());
     NetClient::instance().shutdown();
-    NetClient::instance().init(host, port, (uint32_t)roomId, (uint8_t)slot);
+    NetClient::instance().init(host, port, (uint32_t)roomId, (uint8_t)slot, name);
 }
 
 JNIEXPORT void JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeShutdownNetwork(
@@ -232,6 +256,28 @@ JNIEXPORT void JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeSendStageChange(
 JNIEXPORT void JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeSendArmoryReady(
     JNIEnv* env, jclass clazz, jboolean ready) {
     NetClient::instance().send_armory_ready(ready == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeSendChatMessage(
+    JNIEnv* env, jclass clazz, jstring jname, jstring jtext) {
+    const char* name_str = env->GetStringUTFChars(jname, nullptr);
+    const char* text_str = env->GetStringUTFChars(jtext, nullptr);
+    std::string name = name_str ? name_str : "Player";
+    std::string text = text_str ? text_str : "";
+    if (name_str) env->ReleaseStringUTFChars(jname, name_str);
+    if (text_str) env->ReleaseStringUTFChars(jtext, text_str);
+
+    NetClient::instance().send_chat_message(name, text);
+}
+
+JNIEXPORT jstring JNICALL Java_org_cocos2dx_cpp_AppActivity_nativePollChatMessage(
+    JNIEnv* env, jclass clazz) {
+    ChatMessagePacket msg{};
+    if (NetClient::instance().poll_chat_message(msg)) {
+        std::string formatted = "[" + std::string(msg.sender_name) + "]: " + std::string(msg.text);
+        return env->NewStringUTF(formatted.c_str());
+    }
+    return nullptr;
 }
 
 JNIEXPORT jint JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeGetLobbyTotalPlayers(

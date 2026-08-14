@@ -1,6 +1,6 @@
 /**
  * Anger of Stick 5 - Dedicated 4-Player Matchmaking & UDP Relay Server
- * Handles rooms, player slots 0..3, lobby ready states, armory sync, and 60Hz telemetry fanout.
+ * Handles rooms, player slots 0..3, lobby ready states, in-game chat, and 60Hz telemetry fanout.
  */
 
 const dgram = require('dgram');
@@ -9,63 +9,64 @@ const PORT = parseInt(process.env.PORT || '7777', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 
 const AOS_MAGIC = 0x53; // 'S'
-const AOS_VERSION = 0x02;
+const AOS_VERSION = 0x03;
 
 const PKT = {
-    JOIN_REQUEST:   0x01,
-    JOIN_RESPONSE:  0x02,
-    HEARTBEAT:      0x03,
-    PLAYER_STATE:   0x04,
-    ACTION_EVENT:   0x05,
-    DAMAGE_EVENT:   0x06,
-    SPAWN_PROXY:    0x07,
-    DISCONNECT:     0x08,
-    LOBBY_STATE:    0x10,
-    READY_TOGGLE:   0x11,
-    START_GAME:     0x12,
-    STAGE_CHANGE:   0x13,
-    ARMORY_READY:   0x14
+    JOIN_REQUEST:        0x01,
+    JOIN_RESPONSE:       0x02,
+    HEARTBEAT:           0x03,
+    PLAYER_STATE:        0x04,
+    ACTION_EVENT:        0x05,
+    DAMAGE_EVENT:        0x06,
+    SPAWN_PROXY:         0x07,
+    DISCONNECT:          0x08,
+    LOBBY_STATE:         0x10,
+    READY_TOGGLE:        0x11,
+    START_GAME:          0x12,
+    STAGE_CHANGE:        0x13,
+    ARMORY_READY:        0x14,
+    CHAT_MESSAGE:        0x20,
+    ROOM_LIST_REQUEST:   0x21,
+    ROOM_LIST_RESPONSE:  0x22
 };
 
 const STAGE = {
-    LOBBY:        0,
-    LEVEL_SELECT: 1,
-    ARMORY:       2,
-    IN_GAME:      3
+    PRE_GAME_LOBBY: 0,
+    LEVEL_SELECT:   1,
+    ARMORY:         2,
+    IN_GAME:        3
 };
 
 class Room {
     constructor(id) {
         this.id = id;
         this.slots = [null, null, null, null]; // Slot 0 = Host, 1..3 = Clients
-        this.readyMask = 0x01; // Host (Slot 0) is ready by default
-        this.stage = STAGE.LOBBY;
+        this.readyMask = 0x01; // Host is ready by default
+        this.stage = STAGE.PRE_GAME_LOBBY;
         this.selectedLevel = 1;
         this.lastActivity = Date.now();
     }
 
-    addPeer(address, port, preferredSlot) {
+    addPeer(address, port, preferredSlot, name = 'Player') {
         this.lastActivity = Date.now();
 
-        // Check if this peer already in a slot
         for (let i = 0; i < 4; i++) {
             const p = this.slots[i];
             if (p && p.address === address && p.port === port) {
+                p.name = name;
                 return i;
             }
         }
 
-        // Try preferred slot first
         if (preferredSlot >= 0 && preferredSlot < 4 && !this.slots[preferredSlot]) {
-            this.slots[preferredSlot] = { address, port, lastSeen: Date.now() };
+            this.slots[preferredSlot] = { address, port, name, lastSeen: Date.now() };
             if (preferredSlot === 0) this.readyMask |= 0x01;
             return preferredSlot;
         }
 
-        // Assign first free slot
         for (let i = 0; i < 4; i++) {
             if (!this.slots[i]) {
-                this.slots[i] = { address, port, lastSeen: Date.now() };
+                this.slots[i] = { address, port, name, lastSeen: Date.now() };
                 if (i === 0) this.readyMask |= 0x01;
                 return i;
             }
@@ -158,22 +159,26 @@ server.on('message', (msg, rinfo) => {
             if (msg.length < 8) return;
             const roomId = msg.readUInt32LE(3);
             const preferredSlot = msg.readUInt8(7);
+            let name = 'Player';
+            if (msg.length >= 24) {
+                name = msg.toString('utf8', 8, 24).replace(/\0/g, '').trim() || 'Player';
+            }
 
             const room = getOrCreateRoom(roomId);
-            const peerId = room.addPeer(rinfo.address, rinfo.port, preferredSlot);
+            const peerId = room.addPeer(rinfo.address, rinfo.port, preferredSlot, name);
 
             const resp = Buffer.alloc(9);
             resp.writeUInt8(AOS_MAGIC, 0);
             resp.writeUInt8(AOS_VERSION, 1);
             resp.writeUInt8(PKT.JOIN_RESPONSE, 2);
-            resp.writeUInt8(peerId >= 0 ? 0 : 1, 3); // Status: 0 = SUCCESS, 1 = FULL
+            resp.writeUInt8(peerId >= 0 ? 0 : 1, 3);
             resp.writeUInt8(peerId >= 0 ? peerId : 0xFF, 4);
             resp.writeUInt32LE(roomId, 5);
 
             server.send(resp, 0, resp.length, rinfo.port, rinfo.address);
 
             if (peerId >= 0) {
-                console.log(`[ROOM ${roomId}] Peer ${rinfo.address}:${rinfo.port} -> Slot ${peerId} (Total: ${room.getPlayersCount()}/4)`);
+                console.log(`[ROOM ${roomId}] ${name} (${rinfo.address}:${rinfo.port}) -> Slot ${peerId} (${room.getPlayersCount()}/4)`);
                 room.broadcastLobbyState(server);
             }
             break;
@@ -182,7 +187,6 @@ server.on('message', (msg, rinfo) => {
         case PKT.HEARTBEAT: {
             if (msg.length < 8) return;
             const peerId = msg.readUInt8(3);
-            // Search peer's room and update heartbeat
             for (const room of rooms.values()) {
                 if (room.slots[peerId] && room.slots[peerId].address === rinfo.address) {
                     room.slots[peerId].lastSeen = Date.now();
@@ -204,7 +208,7 @@ server.on('message', (msg, rinfo) => {
                     } else {
                         room.readyMask &= ~(1 << peerId);
                     }
-                    console.log(`[ROOM ${room.id}] Slot ${peerId} Ready: ${isReady === 1 ? 'YES' : 'NO'} (ReadyMask: 0b${room.readyMask.toString(2)})`);
+                    console.log(`[ROOM ${room.id}] Slot ${peerId} Ready: ${isReady === 1 ? 'YES' : 'NO'}`);
                     room.broadcastLobbyState(server);
                     break;
                 }
@@ -222,7 +226,7 @@ server.on('message', (msg, rinfo) => {
                 if (room.slots[0] && room.slots[0].address === rinfo.address) {
                     room.stage = newStage;
                     room.selectedLevel = levelId;
-                    console.log(`[ROOM ${room.id}] Host changed stage to ${newStage}, Level: ${levelId}`);
+                    console.log(`[ROOM ${room.id}] Stage Transition: ${newStage}, Level: ${levelId}`);
                     room.broadcastLobbyState(server);
                     break;
                 }
@@ -242,8 +246,20 @@ server.on('message', (msg, rinfo) => {
                     } else {
                         room.readyMask &= ~(1 << peerId);
                     }
-                    console.log(`[ROOM ${room.id}] Armory Slot ${peerId} Ready: ${isReady}`);
+                    console.log(`[ROOM ${room.id}] Armory Ready Slot ${peerId}: ${isReady}`);
                     room.broadcastLobbyState(server);
+                    break;
+                }
+            }
+            break;
+        }
+
+        case PKT.CHAT_MESSAGE: {
+            // Forward chat message to everyone in the room (including sender or echo)
+            const senderSlot = msg.readUInt8(3);
+            for (const room of rooms.values()) {
+                if (room.slots[senderSlot] && room.slots[senderSlot].address === rinfo.address) {
+                    room.broadcast(server, msg); // Broadcast to ALL in room
                     break;
                 }
             }
@@ -254,7 +270,6 @@ server.on('message', (msg, rinfo) => {
         case PKT.ACTION_EVENT:
         case PKT.DAMAGE_EVENT:
         case PKT.SPAWN_PROXY: {
-            // High-frequency telemetry fanout to room
             const peerId = msg.readUInt8(3);
             for (const room of rooms.values()) {
                 if (room.slots[peerId] && room.slots[peerId].address === rinfo.address) {
@@ -270,7 +285,7 @@ server.on('message', (msg, rinfo) => {
             const peerId = msg.readUInt8(3);
             for (const room of rooms.values()) {
                 if (room.slots[peerId] && room.slots[peerId].address === rinfo.address) {
-                    console.log(`[ROOM ${room.id}] Peer disconnected from Slot ${peerId}`);
+                    console.log(`[ROOM ${room.id}] Slot ${peerId} disconnected`);
                     room.removePeer(peerId);
                     room.broadcastLobbyState(server);
                     break;
@@ -281,13 +296,12 @@ server.on('message', (msg, rinfo) => {
     }
 });
 
-// Periodic inactive peer and empty room cleanup
 setInterval(() => {
     const now = Date.now();
     for (const [roomId, room] of rooms.entries()) {
         for (let i = 0; i < 4; i++) {
             const p = room.slots[i];
-            if (p && (now - p.lastSeen > 10000)) { // 10s timeout
+            if (p && (now - p.lastSeen > 12000)) {
                 console.log(`[ROOM ${roomId}] Slot ${i} timed out`);
                 room.removePeer(i);
                 room.broadcastLobbyState(server);

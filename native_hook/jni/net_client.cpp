@@ -23,13 +23,14 @@ NetClient::~NetClient() {
     shutdown();
 }
 
-bool NetClient::init(const std::string& host, int port, uint32_t room_id, uint8_t preferred_slot) {
+bool NetClient::init(const std::string& host, int port, uint32_t room_id, uint8_t preferred_slot, const std::string& player_name) {
     if (m_running.load()) return true;
 
     m_host = host;
     m_port = port;
     m_room_id = room_id;
     m_preferred_slot = preferred_slot;
+    m_player_name = player_name.empty() ? "Player" : player_name;
 
     m_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (m_sockfd < 0) {
@@ -37,7 +38,6 @@ bool NetClient::init(const std::string& host, int port, uint32_t room_id, uint8_
         return false;
     }
 
-    // Set non-blocking
     int flags = fcntl(m_sockfd, F_GETFL, 0);
     fcntl(m_sockfd, F_SETFL, flags | O_NONBLOCK);
 
@@ -54,7 +54,7 @@ bool NetClient::init(const std::string& host, int port, uint32_t room_id, uint8_
     m_running.store(true);
     m_net_thread = std::thread(&NetClient::network_thread_func, this);
 
-    LOGI("NetClient initialized, target: %s:%d, Room: %u", m_host.c_str(), m_port, m_room_id);
+    LOGI("NetClient initialized -> %s:%d, Room: %u, Slot: %u", m_host.c_str(), m_port, m_room_id, (unsigned)m_preferred_slot);
     return true;
 }
 
@@ -163,6 +163,26 @@ void NetClient::send_armory_ready(bool ready) {
     sendto(m_sockfd, &pkt, sizeof(pkt), 0, (struct sockaddr*)&m_server_addr, sizeof(m_server_addr));
 }
 
+void NetClient::send_chat_message(const std::string& sender_name, const std::string& text) {
+    if (m_sockfd < 0) return;
+
+    ChatMessagePacket pkt{};
+    pkt.header = {AOS_MAGIC_BYTE, AOS_PROTO_VERSION, PKT_CHAT_MESSAGE};
+    pkt.sender_slot = m_my_peer_id.load();
+    strncpy(pkt.sender_name, sender_name.c_str(), sizeof(pkt.sender_name) - 1);
+    strncpy(pkt.text, text.c_str(), sizeof(pkt.text) - 1);
+
+    sendto(m_sockfd, &pkt, sizeof(pkt), 0, (struct sockaddr*)&m_server_addr, sizeof(m_server_addr));
+}
+
+bool NetClient::poll_chat_message(ChatMessagePacket& out_msg) {
+    std::lock_guard<std::mutex> lock(m_chat_mutex);
+    if (m_chat_queue.empty()) return false;
+    out_msg = m_chat_queue.front();
+    m_chat_queue.pop();
+    return true;
+}
+
 void NetClient::network_thread_func() {
     LOGI("AOS Network thread started.");
 
@@ -182,6 +202,7 @@ void NetClient::network_thread_func() {
                 join_pkt.header = {AOS_MAGIC_BYTE, AOS_PROTO_VERSION, PKT_JOIN_REQUEST};
                 join_pkt.room_id = m_room_id;
                 join_pkt.preferred_slot = m_preferred_slot;
+                strncpy(join_pkt.player_name, m_player_name.c_str(), sizeof(join_pkt.player_name) - 1);
 
                 sendto(m_sockfd, &join_pkt, sizeof(join_pkt), 0,
                        (struct sockaddr*)&m_server_addr, sizeof(m_server_addr));
@@ -218,7 +239,7 @@ void NetClient::network_thread_func() {
                 case PKT_JOIN_RESPONSE: {
                     if (bytes >= (ssize_t)sizeof(JoinResponsePacket)) {
                         auto* resp = (JoinResponsePacket*)recv_buf;
-                        if (resp->status == 0) { // SUCCESS
+                        if (resp->status == 0) {
                             m_my_peer_id.store(resp->peer_id);
                             m_connected.store(true);
                             LOGI("JOIN SUCCESS! Assigned Peer ID: %u in Room: %u", resp->peer_id, resp->room_id);
@@ -238,8 +259,17 @@ void NetClient::network_thread_func() {
                         m_stage.store(lobby->stage);
                         m_selected_level.store(lobby->selected_level);
 
-                        LOGI("Lobby Update: %u/4 Players, ReadyMask: 0x%02X, Stage: %u, Level: %u",
-                             lobby->total_players, lobby->ready_mask, lobby->stage, lobby->selected_level);
+                        LOGI("Lobby Update: %u/4 Players, ReadyMask: 0x%02X, Stage: %u",
+                             lobby->total_players, lobby->ready_mask, lobby->stage);
+                    }
+                    break;
+                }
+
+                case PKT_CHAT_MESSAGE: {
+                    if (bytes >= (ssize_t)sizeof(ChatMessagePacket)) {
+                        auto* chat = (ChatMessagePacket*)recv_buf;
+                        std::lock_guard<std::mutex> lock(m_chat_mutex);
+                        m_chat_queue.push(*chat);
                     }
                     break;
                 }
@@ -277,19 +307,18 @@ void NetClient::network_thread_func() {
             }
         }
 
-        // Timeout inactive peers (no update in 4 seconds)
+        // Timeout inactive peers
         for (int i = 0; i < 4; ++i) {
             if (i == m_my_peer_id.load()) continue;
             auto& peer = m_remote_peers[i];
             if (peer.active.load()) {
                 if (now - peer.last_update_ms.load() > 4000) {
                     peer.active.store(false);
-                    LOGI("Peer slot %d timed out", i);
                 }
             }
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(5)); // ~200 Hz
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
 
     LOGI("AOS Network thread stopped.");
