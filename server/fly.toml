@@ -1,0 +1,26 @@
+app = "aos5-multiplayer-relay"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "7777"
+  HOST = "0.0.0.0"
+
+[[services]]
+  protocol = "udp"
+  internal_port = 7777
+
+  [[services.ports]]
+    port = 7777
+
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "5s"
+
+[vm]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256
