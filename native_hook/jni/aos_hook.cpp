@@ -2,11 +2,13 @@
 #include "arm64_hook.h"
 #include "net_client.h"
 
+#include <jni.h>
 #include <dlfcn.h>
 #include <fstream>
 #include <sstream>
 #include <thread>
 #include <chrono>
+#include <cstdio>
 
 // Global game controller pointer
 static void* g_pGame = nullptr;
@@ -21,6 +23,8 @@ static drawScene_t orig_drawScene = nullptr;
 static update_t orig_update = nullptr;
 static COMAI_t orig_COMAI = nullptr;
 static PCDamage_t orig_PCDamage = nullptr;
+
+static bool g_hooks_installed = false;
 
 // Helper to access entity struct
 static inline char* get_entity_ptr(void* pGame, int slot) {
@@ -114,8 +118,27 @@ static void hook_PCDamage(void* pGame, int type, int entity_idx, int amount) {
 }
 
 // -------------------------------------------------------------
-// Initialization & Configuration Loader
+// Module Base Finder & Symbol Resolver
 // -------------------------------------------------------------
+
+static uintptr_t get_module_base(const char* module_name) {
+    uintptr_t base = 0;
+    FILE* fp = fopen("/proc/self/maps", "r");
+    if (!fp) return 0;
+
+    char line[512];
+    while (fgets(line, sizeof(line), fp)) {
+        if (strstr(line, module_name)) {
+            uintptr_t start = 0;
+            if (sscanf(line, "%lx-%*lx", &start) == 1) {
+                base = start;
+                break;
+            }
+        }
+    }
+    fclose(fp);
+    return base;
+}
 
 static void load_config(std::string& host, int& port, uint32_t& room_id, uint8_t& preferred_slot) {
     host = "127.0.0.1";
@@ -123,69 +146,80 @@ static void load_config(std::string& host, int& port, uint32_t& room_id, uint8_t
     room_id = 1;
     preferred_slot = 0xFF;
 
-    std::ifstream cfg("/data/local/tmp/aos_multiplayer.cfg");
-    if (cfg.is_open()) {
-        std::string line;
-        while (std::getline(cfg, line)) {
-            std::istringstream iss(line);
-            std::string key, val;
-            if (std::getline(iss, key, '=') && std::getline(iss, val)) {
-                if (key == "host" || key == "HOST" || key == "server") host = val;
-                else if (key == "port" || key == "PORT") port = std::stoi(val);
-                else if (key == "room" || key == "ROOM_ID") room_id = std::stoul(val);
-                else if (key == "slot" || key == "SLOT") preferred_slot = std::stoi(val);
+    const char* paths[] = {
+        "/data/data/jpark.AOS5/files/aos_multiplayer.cfg",
+        "/data/local/tmp/aos_multiplayer.cfg"
+    };
+
+    for (const char* path : paths) {
+        std::ifstream cfg(path);
+        if (cfg.is_open()) {
+            std::string line;
+            while (std::getline(cfg, line)) {
+                std::istringstream iss(line);
+                std::string key, val;
+                if (std::getline(iss, key, '=') && std::getline(iss, val)) {
+                    if (key == "host" || key == "HOST" || key == "server") host = val;
+                    else if (key == "port" || key == "PORT") port = std::stoi(val);
+                    else if (key == "room" || key == "ROOM_ID") room_id = std::stoul(val);
+                    else if (key == "slot" || key == "SLOT") preferred_slot = std::stoi(val);
+                }
             }
+            cfg.close();
+            LOGI("Loaded config from %s -> Host: %s:%d, Room: %u, Slot: %u",
+                 path, host.c_str(), port, room_id, (unsigned)preferred_slot);
+            return;
         }
-        cfg.close();
-        LOGI("Loaded config from /data/local/tmp/aos_multiplayer.cfg -> Host: %s:%d, Room: %u, Slot: %u",
-             host.c_str(), port, room_id, (unsigned)preferred_slot);
-    } else {
-        LOGI("No config file found at /data/local/tmp/aos_multiplayer.cfg, using defaults %s:%d, Room: %u",
-             host.c_str(), port, room_id);
     }
+
+    LOGI("Using default network configuration: %s:%d, Room: %u", host.c_str(), port, room_id);
 }
 
-static void init_hooks_thread() {
-    LOGI("AOS Multiplayer Injection Starting...");
+static void install_hooks() {
+    if (g_hooks_installed) return;
 
-    void* handle = nullptr;
+    LOGI("Searching for libMyGame symbols...");
+    uintptr_t base = 0;
     for (int retry = 0; retry < 50; ++retry) {
-        handle = dlopen("libMyGame.so", RTLD_NOW | RTLD_GLOBAL);
-        if (handle) break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        base = get_module_base("libMyGame.so");
+        if (base) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
-    if (!handle) {
-        LOGE("Failed to open libMyGame.so");
-        return;
+    void* sym_drawScene = nullptr;
+    void* sym_COMAI = nullptr;
+    void* sym_PCDamage = nullptr;
+
+    if (base) {
+        LOGI("Found libMyGame.so base address at %p", (void*)base);
+        // Direct virtual offset calculation
+        sym_drawScene = (void*)(base + 0x2b5020);
+        sym_COMAI = (void*)(base + 0x3219dc);
+        sym_PCDamage = (void*)(base + 0x3398c8);
+    } else {
+        LOGI("Using dlsym RTLD_DEFAULT fallback...");
+        sym_drawScene = dlsym(RTLD_DEFAULT, "_ZN11bzStateGame9drawSceneEf");
+        sym_COMAI = dlsym(RTLD_DEFAULT, "_ZN11bzStateGame5COMAIEi");
+        sym_PCDamage = dlsym(RTLD_DEFAULT, "_ZN11bzStateGame8PCDamageEiii");
     }
-
-    LOGI("libMyGame.so handle resolved: %p", handle);
-
-    // Resolve target symbols
-    void* sym_drawScene = dlsym(handle, "_ZN11bzStateGame9drawSceneEf");
-    void* sym_COMAI = dlsym(handle, "_ZN11bzStateGame5COMAIEi");
-    void* sym_PCDamage = dlsym(handle, "_ZN11bzStateGame8PCDamageEiii");
 
     if (sym_drawScene) {
         HookEngine::hook_arm64(sym_drawScene, (void*)hook_drawScene, (void**)&orig_drawScene);
-    } else {
-        LOGE("Could not resolve _ZN11bzStateGame9drawSceneEf");
     }
-
     if (sym_COMAI) {
         HookEngine::hook_arm64(sym_COMAI, (void*)hook_COMAI, (void**)&orig_COMAI);
-    } else {
-        LOGE("Could not resolve _ZN11bzStateGame5COMAIEi");
     }
-
     if (sym_PCDamage) {
         HookEngine::hook_arm64(sym_PCDamage, (void*)hook_PCDamage, (void**)&orig_PCDamage);
-    } else {
-        LOGE("Could not resolve _ZN11bzStateGame8PCDamageEiii");
     }
 
-    // Initialize Network Client
+    g_hooks_installed = true;
+    LOGI("AOS Multiplayer Native Hooks Installed!");
+}
+
+static void init_hooks_thread() {
+    install_hooks();
+
     std::string host;
     int port;
     uint32_t room_id;
@@ -193,15 +227,42 @@ static void init_hooks_thread() {
     load_config(host, port, room_id, preferred_slot);
 
     NetClient::instance().init(host, port, room_id, preferred_slot);
-    LOGI("AOS Multiplayer Hooks & Network Thread Successfully Installed!");
 }
 
 void init_aos_multiplayer() {
     std::thread(init_hooks_thread).detach();
 }
 
-// ELF constructor executed automatically upon shared library loading
 __attribute__((constructor))
 static void aos_mod_entry() {
     init_aos_multiplayer();
+}
+
+// -------------------------------------------------------------
+// JNI Exports for In-Game Lobby UI
+// -------------------------------------------------------------
+
+extern "C" {
+
+JNIEXPORT void JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeSetMultiplayerConfig(
+    JNIEnv* env, jclass clazz, jstring jhost, jint port, jint roomId, jint slot) {
+    const char* host_str = env->GetStringUTFChars(jhost, nullptr);
+    std::string host = host_str ? host_str : "127.0.0.1";
+    if (host_str) env->ReleaseStringUTFChars(jhost, host_str);
+
+    LOGI("JNI: Configured Multiplayer -> Host: %s:%d, Room: %d, Slot: %d", host.c_str(), port, roomId, slot);
+    NetClient::instance().shutdown();
+    NetClient::instance().init(host, port, (uint32_t)roomId, (uint8_t)slot);
+}
+
+JNIEXPORT jboolean JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeIsConnected(
+    JNIEnv* env, jclass clazz) {
+    return NetClient::instance().is_connected() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeGetMyPeerId(
+    JNIEnv* env, jclass clazz) {
+    return (jint)NetClient::instance().get_my_peer_id();
+}
+
 }

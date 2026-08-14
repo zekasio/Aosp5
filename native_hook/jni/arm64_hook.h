@@ -22,8 +22,8 @@ inline bool set_memory_prot(void* addr, size_t size, int prot) {
 }
 
 inline void emit_arm64_jump(uint32_t* dest, uintptr_t target) {
-    // 0x58000050: LDR X16, #8
-    // 0xD61F0200: BR  X16
+    // LDR X16, #8 (loads 64-bit target from PC+8)
+    // BR  X16
     dest[0] = 0x58000050;
     dest[1] = 0xD61F0200;
     dest[2] = (uint32_t)(target & 0xFFFFFFFF);
@@ -33,42 +33,41 @@ inline void emit_arm64_jump(uint32_t* dest, uintptr_t target) {
 inline bool hook_arm64(void* target, void* hook, void** orig_trampoline) {
     if (!target || !hook) return false;
 
-    // Allocate 32 bytes for trampoline: 16 bytes copied + 16 bytes jump back
-    void* trampoline = mmap(nullptr, 64, PROT_READ | PROT_WRITE | PROT_EXEC,
+    // Allocate trampoline buffer (RW first for Android W^X compatibility)
+    void* trampoline = mmap(nullptr, 64, PROT_READ | PROT_WRITE,
                             MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     if (trampoline == MAP_FAILED) {
         LOGE("Failed to mmap trampoline buffer");
         return false;
     }
 
-    // Copy original 16 bytes (4 instructions) to trampoline
+    // Copy original 16 bytes (4 instructions)
     memcpy(trampoline, target, 16);
 
-    // Write jump back instruction at trampoline + 16 -> target + 16
+    // Append jump back to target + 16
     uintptr_t target_ret = (uintptr_t)target + 16;
     emit_arm64_jump((uint32_t*)((uintptr_t)trampoline + 16), target_ret);
 
-    // Flush cache for trampoline
+    // Switch trampoline to RX
+    mprotect(trampoline, 64, PROT_READ | PROT_EXEC);
     __builtin___clear_cache((char*)trampoline, (char*)trampoline + 32);
 
     if (orig_trampoline) {
         *orig_trampoline = trampoline;
     }
 
-    // Make target function writable
+    // Make target writable
     if (!set_memory_prot(target, 16, PROT_READ | PROT_WRITE | PROT_EXEC)) {
         LOGE("Failed to set memory permissions for target at %p", target);
         munmap(trampoline, 64);
         return false;
     }
 
-    // Write jump to hook function at target
+    // Write hook jump
     emit_arm64_jump((uint32_t*)target, (uintptr_t)hook);
 
-    // Restore memory protection to RX
+    // Restore target protection to RX
     set_memory_prot(target, 16, PROT_READ | PROT_EXEC);
-
-    // Flush instruction cache for target function
     __builtin___clear_cache((char*)target, (char*)target + 16);
 
     LOGI("Successfully hooked target %p -> hook %p (trampoline: %p)", target, hook, trampoline);
