@@ -40,7 +40,7 @@ static inline char* get_entity_ptr(void* pGame, int slot) {
 static void hook_drawScene(void* pGame, float dt) {
     g_pGame = pGame;
 
-    if (pGame) {
+    if (pGame && NetClient::instance().is_connected()) {
         // 1. Telemetry Capture for Local Player (Slot 0)
         char* pLocal = get_entity_ptr(pGame, 0);
         if (pLocal) {
@@ -90,8 +90,7 @@ static void hook_drawScene(void* pGame, float dt) {
 
 // Hook: bzStateGame::COMAI(int entity_idx)
 static void hook_COMAI(void* pGame, int entity_idx) {
-    // If this slot belongs to an active networked player proxy (slot 1..3), suppress AI
-    if (entity_idx >= 1 && entity_idx <= 3) {
+    if (NetClient::instance().is_connected() && entity_idx >= 1 && entity_idx <= 3) {
         auto& remote = NetClient::instance().get_remote_peer(entity_idx);
         if (remote.active.load()) {
             // Suppress bot AI execution
@@ -99,7 +98,6 @@ static void hook_COMAI(void* pGame, int entity_idx) {
         }
     }
 
-    // Otherwise execute normal AI logic for enemies/bots
     if (orig_COMAI) {
         orig_COMAI(pGame, entity_idx);
     }
@@ -107,8 +105,7 @@ static void hook_COMAI(void* pGame, int entity_idx) {
 
 // Hook: bzStateGame::PCDamage(int type, int entity_idx, int amount)
 static void hook_PCDamage(void* pGame, int type, int entity_idx, int amount) {
-    if (entity_idx == 0) {
-        // Local player damaged -> broadcast to room
+    if (NetClient::instance().is_connected() && entity_idx == 0) {
         NetClient::instance().send_damage_event(0, (uint8_t)type, (int16_t)amount);
     }
 
@@ -140,41 +137,6 @@ static uintptr_t get_module_base(const char* module_name) {
     return base;
 }
 
-static void load_config(std::string& host, int& port, uint32_t& room_id, uint8_t& preferred_slot) {
-    host = "127.0.0.1";
-    port = 7777;
-    room_id = 1;
-    preferred_slot = 0xFF;
-
-    const char* paths[] = {
-        "/data/data/jpark.AOS5/files/aos_multiplayer.cfg",
-        "/data/local/tmp/aos_multiplayer.cfg"
-    };
-
-    for (const char* path : paths) {
-        std::ifstream cfg(path);
-        if (cfg.is_open()) {
-            std::string line;
-            while (std::getline(cfg, line)) {
-                std::istringstream iss(line);
-                std::string key, val;
-                if (std::getline(iss, key, '=') && std::getline(iss, val)) {
-                    if (key == "host" || key == "HOST" || key == "server") host = val;
-                    else if (key == "port" || key == "PORT") port = std::stoi(val);
-                    else if (key == "room" || key == "ROOM_ID") room_id = std::stoul(val);
-                    else if (key == "slot" || key == "SLOT") preferred_slot = std::stoi(val);
-                }
-            }
-            cfg.close();
-            LOGI("Loaded config from %s -> Host: %s:%d, Room: %u, Slot: %u",
-                 path, host.c_str(), port, room_id, (unsigned)preferred_slot);
-            return;
-        }
-    }
-
-    LOGI("Using default network configuration: %s:%d, Room: %u", host.c_str(), port, room_id);
-}
-
 static void install_hooks() {
     if (g_hooks_installed) return;
 
@@ -192,7 +154,6 @@ static void install_hooks() {
 
     if (base) {
         LOGI("Found libMyGame.so base address at %p", (void*)base);
-        // Direct virtual offset calculation
         sym_drawScene = (void*)(base + 0x2b5020);
         sym_COMAI = (void*)(base + 0x3219dc);
         sym_PCDamage = (void*)(base + 0x3398c8);
@@ -217,20 +178,8 @@ static void install_hooks() {
     LOGI("AOS Multiplayer Native Hooks Installed!");
 }
 
-static void init_hooks_thread() {
-    install_hooks();
-
-    std::string host;
-    int port;
-    uint32_t room_id;
-    uint8_t preferred_slot;
-    load_config(host, port, room_id, preferred_slot);
-
-    NetClient::instance().init(host, port, room_id, preferred_slot);
-}
-
 void init_aos_multiplayer() {
-    std::thread(init_hooks_thread).detach();
+    std::thread(install_hooks).detach();
 }
 
 __attribute__((constructor))
@@ -239,7 +188,7 @@ static void aos_mod_entry() {
 }
 
 // -------------------------------------------------------------
-// JNI Exports for In-Game Lobby UI
+// JNI Exports for In-Game Lobby & Stage Flow
 // -------------------------------------------------------------
 
 extern "C" {
@@ -255,6 +204,11 @@ JNIEXPORT void JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeSetMultiplayerCon
     NetClient::instance().init(host, port, (uint32_t)roomId, (uint8_t)slot);
 }
 
+JNIEXPORT void JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeShutdownNetwork(
+    JNIEnv* env, jclass clazz) {
+    NetClient::instance().shutdown();
+}
+
 JNIEXPORT jboolean JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeIsConnected(
     JNIEnv* env, jclass clazz) {
     return NetClient::instance().is_connected() ? JNI_TRUE : JNI_FALSE;
@@ -263,6 +217,46 @@ JNIEXPORT jboolean JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeIsConnected(
 JNIEXPORT jint JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeGetMyPeerId(
     JNIEnv* env, jclass clazz) {
     return (jint)NetClient::instance().get_my_peer_id();
+}
+
+JNIEXPORT void JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeSendReadyToggle(
+    JNIEnv* env, jclass clazz, jboolean ready) {
+    NetClient::instance().send_ready_toggle(ready == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeSendStageChange(
+    JNIEnv* env, jclass clazz, jint newStage, jint levelId) {
+    NetClient::instance().send_stage_change((uint8_t)newStage, (uint32_t)levelId);
+}
+
+JNIEXPORT void JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeSendArmoryReady(
+    JNIEnv* env, jclass clazz, jboolean ready) {
+    NetClient::instance().send_armory_ready(ready == JNI_TRUE);
+}
+
+JNIEXPORT jint JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeGetLobbyTotalPlayers(
+    JNIEnv* env, jclass clazz) {
+    return (jint)NetClient::instance().get_lobby_total_players();
+}
+
+JNIEXPORT jint JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeGetLobbyOccupiedMask(
+    JNIEnv* env, jclass clazz) {
+    return (jint)NetClient::instance().get_lobby_occupied_mask();
+}
+
+JNIEXPORT jint JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeGetLobbyReadyMask(
+    JNIEnv* env, jclass clazz) {
+    return (jint)NetClient::instance().get_lobby_ready_mask();
+}
+
+JNIEXPORT jint JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeGetLobbyStage(
+    JNIEnv* env, jclass clazz) {
+    return (jint)NetClient::instance().get_lobby_stage();
+}
+
+JNIEXPORT jint JNICALL Java_org_cocos2dx_cpp_AppActivity_nativeGetLobbySelectedLevel(
+    JNIEnv* env, jclass clazz) {
+    return (jint)NetClient::instance().get_lobby_selected_level();
 }
 
 }

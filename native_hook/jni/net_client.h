@@ -35,8 +35,19 @@ public:
     void send_action_event(uint8_t action_id, float target_x, float target_y, int32_t extra);
     void send_damage_event(uint8_t target_slot, uint8_t damage_type, int16_t damage_amount);
 
+    // Lobby & Stage Sync
+    void send_ready_toggle(bool ready);
+    void send_stage_change(uint8_t new_stage, uint32_t level_id);
+    void send_armory_ready(bool ready);
+
     uint8_t get_my_peer_id() const { return m_my_peer_id.load(); }
     bool is_connected() const { return m_connected.load(); }
+
+    uint8_t get_lobby_total_players() const { return m_total_players.load(); }
+    uint8_t get_lobby_occupied_mask() const { return m_occupied_mask.load(); }
+    uint8_t get_lobby_ready_mask() const { return m_ready_mask.load(); }
+    uint8_t get_lobby_stage() const { return m_stage.load(); }
+    uint32_t get_lobby_selected_level() const { return m_selected_level.load(); }
 
     RemotePeerState& get_remote_peer(uint8_t slot) {
         if (slot >= 4) return m_remote_peers[0];
@@ -60,6 +71,13 @@ private:
     std::atomic<bool> m_connected{false};
     std::atomic<uint8_t> m_my_peer_id{0};
     std::atomic<uint32_t> m_seq{0};
+
+    // Lobby state atomics
+    std::atomic<uint8_t> m_total_players{1};
+    std::atomic<uint8_t> m_occupied_mask{1};
+    std::atomic<uint8_t> m_ready_mask{1};
+    std::atomic<uint8_t> m_stage{STAGE_LOBBY};
+    std::atomic<uint32_t> m_selected_level{1};
 
     std::thread m_net_thread;
     RemotePeerState m_remote_peers[4];
